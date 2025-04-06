@@ -1,128 +1,162 @@
 local M = {}
 
 M.setup = function(opts)
-	-- TODO: implement setup
-	print("Setup for present.nvim is called")
+  -- TODO: implement setup
+  print("Setup for present.nvim is called")
 end
+
+---@class present.Slide
+---@field header string: Slide headline
+---@field body string[]: Slide contents (each line is a separate string)
 
 ---Parse lines from buffer into slide contents
 ---@param lines string[]: Buffer lines
----@return string[][]
+---@return present.Slide[]
 local parse_slides = function(lines)
-	local slides = {}
-	local current_slide = {}
+  local slides = {}
+  local current_slide = { header = "", body = {} }
 
-	local separator = "^#"
+  local separator = "^#"
 
-	for _, line in ipairs(lines) do
-		if line:find(separator) then
-			if #current_slide > 0 then
-				table.insert(slides, current_slide)
-			end
+  for _, line in ipairs(lines) do
+    if line:find(separator) then
+      if #current_slide.header > 0 then
+        table.insert(slides, current_slide)
+      end
 
-			current_slide = {}
-		end
+      current_slide = { header = line, body = {} }
+    else
+      table.insert(current_slide.body, line)
+    end
 
-		table.insert(current_slide, line)
-	end
+    table.insert(current_slide, line)
+  end
 
-	if #current_slide > 0 then
-		table.insert(slides, current_slide)
-	end
+  if #current_slide > 0 then
+    table.insert(slides, current_slide)
+  end
 
-	return slides
+  return slides
 end
 
----@class FloatingWindowOptions
----@field width? number Width of the window (default: 80% of editor width)
----@field height? number Height of the window (default: 80% of editor height)
----@field col? number Column position (default: centered)
----@field row? number Row position (default: centered)
----@field relative? string Position relative to ("editor", "win", "cursor", etc.) (default: "editor")
----@field style? string Window style ("minimal", etc.) (default: "minimal")
----@field border? string|table Border style ("none", "single", "double", "rounded", etc.) (default: "rounded")
----@field title? string Window title
----@field title_pos? string Title position ("left", "center", "right")
----@field filetype? string Buffer filetype
-
----Creates a floating window with customizable options
----@param opts? FloatingWindowOptions Configuration options for the floating window
+---Creates a floating window with provided window config
+---@param win_config vim.api.keyset.win_config Configuration for floating window
+---@param filetype? string Optional filetype to set newly created buffer to
 ---@return { buf: number, win: number } # Buffer and window IDs
-local create_floating_window = function(opts)
-	-- Set default options if not provided
-	opts = opts or {}
+local create_floating_window = function(win_config, filetype)
+  local buf = vim.api.nvim_create_buf(false, true)
+  if filetype then
+    vim.bo[buf].filetype = filetype
+  end
 
-	local width = opts.width or math.floor(vim.o.columns * 0.8)
-	local height = opts.height or math.floor(vim.o.lines * 0.8)
-
-	-- Calculate centered position if not specified
-	local col = opts.col or math.floor((vim.o.columns - width) / 2)
-	local row = opts.row or math.floor((vim.o.lines - height) / 2)
-
-	-- Configure window options
-	local window_opts = {
-		relative = opts.relative or "editor",
-		width = width,
-		height = height,
-		col = col,
-		row = row,
-		style = opts.style or "minimal",
-		border = opts.border or "rounded",
-		title = opts.title,
-		title_pos = opts.title_pos,
-	}
-
-	-- Create a scratch buffer for the floating window
-	local buf = vim.api.nvim_create_buf(false, true)
-
-	-- Create the floating window
-	local win_id = vim.api.nvim_open_win(buf, true, window_opts)
-
-	-- Set buffer options
-	if opts.filetype then
-		vim.api.nvim_buf_set_option(buf, "filetype", opts.filetype)
-	end
-
-	-- Return both buffer and window IDs for further manipulation
-	return {
-		buf = buf,
-		win = win_id,
-	}
+  local win = vim.api.nvim_open_win(buf, true, win_config)
+  return { buf = buf, win = win }
 end
 
 ---Start new presentation
 ---@param opts? { bufnr?: number } Presentation options
 ---@return nil
 M.start_presentation = function(opts)
-	opts = opts or {}
-	opts.bufnr = opts.bufnr or 0
+  opts = opts or {}
+  opts.bufnr = opts.bufnr or 0
 
-	local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
-	local slides = parse_slides(lines)
-	local floating_window = create_floating_window()
+  local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
+  local slides = parse_slides(lines)
 
-	local current_slide = 1
-	local show_slide = function()
-		vim.api.nvim_buf_set_lines(floating_window.buf, 0, -1, false, slides[current_slide])
-	end
+  -- Create floating windows to view slides contents
+  local width = vim.o.columns
+  local height = vim.o.lines
 
-	vim.keymap.set("n", "n", function()
-		current_slide = math.min(current_slide + 1, #slides)
-		show_slide()
-	end, { buffer = floating_window.buf, desc = "Show next slide" })
+  ---@type vim.api.keyset.win_config
+  local windows = {
+    background = {
+      relative = "editor",
+      width = width,
+      height = height,
+      style = "minimal",
+      col = 0,
+      row = 0,
+      zindex = 1,
+    },
+    header = {
+      relative = "editor",
+      width = width,
+      height = 1,
+      style = "minimal",
+      border = "rounded",
+      col = 1,
+      row = 0,
+      zindex = 2,
+    },
+    body = {
+      relative = "editor",
+      width = width - math.floor(width * 0.1),
+      height = height - math.max(4, math.floor(height * 0.02)),
+      style = "minimal",
+      col = math.floor(width * 0.05),
+      row = 3,
+      zindex = 2,
+    },
+    -- footer = {},
+  }
 
-	vim.keymap.set("n", "p", function()
-		current_slide = math.max(current_slide - 1, 1)
-		show_slide()
-	end, { buffer = floating_window.buf, desc = "Show previous slide" })
+  local background_float = create_floating_window(windows.background)
+  local header_float = create_floating_window(windows.header, "markdown")
+  local body_float = create_floating_window(windows.body, "markdown")
 
-	vim.keymap.set("n", "q", function()
-		vim.api.nvim_win_close(floating_window.win, true)
-	end, { buffer = floating_window.buf, desc = "Close sides" })
+  local current_slide = 1
+  local show_slide = function()
+    local slide = slides[current_slide]
 
-	show_slide()
+    local padding = string.rep(" ", (width - #slide.header) / 2)
+    local header_text = padding .. slide.header
+    vim.api.nvim_buf_set_lines(header_float.buf, 0, -1, false, { header_text })
+    vim.api.nvim_buf_set_lines(body_float.buf, 0, -1, false, slide.body)
+  end
+
+  vim.keymap.set("n", "n", function()
+    current_slide = math.min(current_slide + 1, #slides)
+    show_slide()
+  end, { buffer = body_float.buf, desc = "Show next slide" })
+
+  vim.keymap.set("n", "p", function()
+    current_slide = math.max(current_slide - 1, 1)
+    show_slide()
+  end, { buffer = body_float.buf, desc = "Show previous slide" })
+
+  vim.keymap.set("n", "q", function()
+    vim.api.nvim_win_close(body_float.win, true)
+  end, { buffer = body_float.buf, desc = "Close sides" })
+
+  local presentation_options_overrides = {
+    cmdheight = {
+      original = vim.o.cmdheight,
+      presentation = 0,
+    },
+  }
+
+  -- Override options during presentation time
+  for option, config in pairs(presentation_options_overrides) do
+    vim.opt[option] = config.presentation
+  end
+
+  vim.api.nvim_create_autocmd("BufLeave", {
+    buffer = body_float.buf,
+    callback = function()
+      -- Restore options back after presentation is closed
+      for option, config in pairs(presentation_options_overrides) do
+        vim.opt[option] = config.original
+      end
+
+      -- Also close the other opened windows
+      pcall(vim.api.nvim_win_close, background_float.win, true)
+      pcall(vim.api.nvim_win_close, header_float.win, true)
+    end,
+  })
+
+  show_slide()
 end
 
--- M.start_presentation({ bufnr = 50 })
+M.start_presentation({ bufnr = 10 })
 
 return M
