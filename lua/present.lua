@@ -53,22 +53,18 @@ local create_floating_window = function(win_config, filetype)
   return { buf = buf, win = win }
 end
 
----Start new presentation
----@param opts? { bufnr?: number } Presentation options
----@return nil
-M.start_presentation = function(opts)
-  opts = opts or {}
-  opts.bufnr = opts.bufnr or 0
+---@class present.WindowConfigs
+---@field background vim.api.keyset.win_config
+---@field header vim.api.keyset.win_config
+---@field body vim.api.keyset.win_config
 
-  local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
-  local slides = parse_slides(lines)
-
-  -- Create floating windows to view slides contents
+---Populate window configs for presentation
+---@return present.WindowConfigs
+local create_window_configurations = function()
   local width = vim.o.columns
   local height = vim.o.lines
 
-  ---@type vim.api.keyset.win_config
-  local windows = {
+  return {
     background = {
       relative = "editor",
       width = width,
@@ -99,6 +95,20 @@ M.start_presentation = function(opts)
     },
     -- footer = {},
   }
+end
+
+---Start new presentation
+---@param opts? { bufnr?: number } Presentation options
+---@return nil
+M.start_presentation = function(opts)
+  opts = opts or {}
+  opts.bufnr = opts.bufnr or 0
+
+  local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
+  local slides = parse_slides(lines)
+
+  -- Create floating windows to view slides contents
+  local windows = create_window_configurations()
 
   local background_float = create_floating_window(windows.background)
   local header_float = create_floating_window(windows.header, "markdown")
@@ -106,6 +116,7 @@ M.start_presentation = function(opts)
 
   local current_slide = 1
   local show_slide = function()
+    local width = vim.o.columns
     local slide = slides[current_slide]
 
     local padding = string.rep(" ", (width - #slide.header) / 2)
@@ -151,6 +162,23 @@ M.start_presentation = function(opts)
       -- Also close the other opened windows
       pcall(vim.api.nvim_win_close, background_float.win, true)
       pcall(vim.api.nvim_win_close, header_float.win, true)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = vim.api.nvim_create_augroup("present-resized", {}),
+    callback = function()
+      if not vim.api.nvim_win_is_valid(body_float.win) or body_float.win == nil then
+        return
+      end
+
+      local updated = create_window_configurations()
+      vim.api.nvim_win_set_config(background_float.win, updated.background)
+      vim.api.nvim_win_set_config(header_float.win, updated.header)
+      vim.api.nvim_win_set_config(body_float.win, updated.body)
+
+      -- Update contents according to the updated width (re-center header)
+      show_slide()
     end,
   })
 
