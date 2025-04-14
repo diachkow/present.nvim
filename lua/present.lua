@@ -243,6 +243,11 @@ M.start_presentation = function(opts)
   show_slide()
 end
 
--- M.start_presentation({ bufnr = 30 })
+-- Add parse slides function to module exports, but mark it as `private`
+-- This way, it is not exposed as public API of my plugin, but at the same
+-- time it is available to test
+M._parse_slides = parse_slides
+
+-- M.start_presentation({ bufnr = 10 })
 
 return M
