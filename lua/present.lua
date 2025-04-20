@@ -1,8 +1,7 @@
 local M = {}
 
 M.setup = function(opts)
-  -- TODO: implement setup
-  print("Setup for present.nvim is called")
+  -- Empty for now, we'll see if there would be any configurable arguments in the future
 end
 
 ---@class present.Slide
@@ -247,7 +246,5 @@ end
 -- This way, it is not exposed as public API of my plugin, but at the same
 -- time it is available to test
 M._parse_slides = parse_slides
-
--- M.start_presentation({ bufnr = 10 })
 
 return M
